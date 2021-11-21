@@ -8,8 +8,6 @@
 import idbKeyval from 'idb-keyval';
 
 import {DragAndDrop} from './drag-and-drop.js';
-import {GithubApi} from './github-api.js';
-import {PSIApi} from './psi-api';
 import {ViewerUIFeatures} from './viewer-ui-features.js';
 import {DOM} from '../../../report/renderer/dom.js';
 import {ReportRenderer} from '../../../report/renderer/report-renderer.js';
@@ -40,24 +38,11 @@ function find(query, context) {
 export class LighthouseReportViewer {
   constructor() {
     this._onPaste = this._onPaste.bind(this);
-    this._onSaveJson = this._onSaveJson.bind(this);
     this._onFileLoad = this._onFileLoad.bind(this);
-    this._onUrlInputChange = this._onUrlInputChange.bind(this);
 
     this._dragAndDropper = new DragAndDrop(this._onFileLoad);
-    this._github = new GithubApi();
-
-    this._psi = new PSIApi();
-    /**
-     * Used for tracking whether to offer to upload as a gist.
-     * @type {boolean}
-     */
-    this._reportIsFromGist = false;
-    this._reportIsFromPSI = false;
-    this._reportIsFromJSON = false;
 
     this._addEventListeners();
-    this._loadFromDeepLink();
     this._listenForMessages();
   }
 
@@ -71,9 +56,6 @@ export class LighthouseReportViewer {
    */
   _addEventListeners() {
     document.addEventListener('paste', this._onPaste);
-
-    const gistUrlInput = find('.js-gist-url', document);
-    gistUrlInput.addEventListener('change', this._onUrlInputChange);
 
     // Hidden file input to trigger manual file selector.
     const fileInput = find('input#hidden-file-input', document);
@@ -100,66 +82,6 @@ export class LighthouseReportViewer {
         fileInput.click();
       }
     });
-  }
-
-  /**
-   * Attempts to pull gist id from URL and render report from it.
-   * @return {Promise<void>}
-   * @private
-   */
-  _loadFromDeepLink() {
-    const params = new URLSearchParams(location.search);
-
-    const gistId = params.get('gist');
-    const psiurl = params.get('psiurl');
-    const jsonurl = params.get('jsonurl');
-    const gzip = params.get('gzip') === '1';
-
-    if (location.hash) {
-      const hashParams = JSON.parse(TextEncoding.fromBase64(location.hash.substr(1), {gzip}));
-      if (hashParams.lhr) {
-        this._replaceReportHtml(hashParams.lhr);
-        return Promise.resolve();
-      } else {
-        console.warn('URL hash is populated, but not decoded successfully', hashParams);
-      }
-    }
-
-    if (!gistId && !psiurl && !jsonurl) return Promise.resolve();
-
-    this._toggleLoadingBlur(true);
-    let loadPromise = Promise.resolve();
-    if (psiurl) {
-      loadPromise = this._fetchFromPSI({
-        url: psiurl,
-        category: params.has('category') ? params.getAll('category') : undefined,
-        strategy: params.get('strategy') || undefined,
-        locale: params.get('locale') || undefined,
-        utm_source: params.get('utm_source') || undefined,
-      });
-    } else if (gistId) {
-      loadPromise = this._github.getGistFileContentAsJson(gistId).then(reportJson => {
-        this._reportIsFromGist = true;
-        this._replaceReportHtml(reportJson);
-      }).catch(err => logger.error(err.message));
-    } else if (jsonurl) {
-      const firebaseAuth = this._github.getFirebaseAuth();
-      loadPromise = firebaseAuth.getAccessTokenIfLoggedIn()
-        .then(token => {
-          return token
-            ? Promise.reject(new Error('Can only use jsonurl when not logged in'))
-            : null;
-        })
-        .then(() => fetch(jsonurl))
-        .then(resp => resp.json())
-        .then(json => {
-          this._reportIsFromJSON = true;
-          this._replaceReportHtml(json);
-        })
-        .catch(err => logger.error(err.message));
-    }
-
-    return loadPromise.finally(() => this._toggleLoadingBlur(false));
   }
 
   /**
@@ -201,11 +123,6 @@ export class LighthouseReportViewer {
       const runnerResult = /** @type {{lhr: LH.Result}} */ (/** @type {unknown} */ (json));
       json = runnerResult.lhr;
     }
-    // Allow users to drop in PSI's json
-    if ('lighthouseResult' in json) {
-      const psiResp = /** @type {{lighthouseResult: LH.Result}} */ (/** @type {unknown} */ (json));
-      json = psiResp.lighthouseResult;
-    }
 
     // Install as global for easier debugging
     // @ts-expect-error
@@ -229,19 +146,12 @@ export class LighthouseReportViewer {
     try {
       renderer.renderReport(json, container);
 
-      // Only give gist-saving callback if current report isn't from a gist.
-      let saveGistCallback;
-      if (!this._reportIsFromGist) {
-        saveGistCallback = this._onSaveJson;
-      }
-
       // Only clear query string if current report isn't from a gist or PSI.
       if (!this._reportIsFromGist && !this._reportIsFromPSI && !this._reportIsFromJSON) {
         history.pushState({}, '', LighthouseReportViewer.APP_URL);
       }
 
       const features = new ViewerUIFeatures(dom, {
-        saveGist: saveGistCallback,
         /** @param {LH.Result} newLhr */
         refresh: newLhr => {
           this._replaceReportHtml(newLhr);
@@ -307,30 +217,6 @@ export class LighthouseReportViewer {
   }
 
   /**
-   * Saves the current report by creating a gist on GitHub.
-   * @param {LH.Result} reportJson
-   * @return {Promise<string|void>} id of the created gist.
-   * @private
-   */
-  async _onSaveJson(reportJson) {
-    if (window.ga) {
-      window.ga('send', 'event', 'report', 'share');
-    }
-
-    // TODO: find and reuse existing json gist if one exists.
-    try {
-      const id = await this._github.createGist(reportJson);
-      if (window.ga) {
-        window.ga('send', 'event', 'report', 'created');
-      }
-      history.pushState({}, '', `${LighthouseReportViewer.APP_URL}?gist=${id}`);
-      return id;
-    } catch (err) {
-      logger.log(err.message);
-    }
-  }
-
-  /**
    * Enables pasting a JSON report or gist URL on the page.
    * @param {ClipboardEvent} e
    * @private
@@ -338,18 +224,6 @@ export class LighthouseReportViewer {
   _onPaste(e) {
     if (!e.clipboardData) return;
     e.preventDefault();
-
-    // Try paste as gist URL.
-    try {
-      const url = new URL(e.clipboardData.getData('text'));
-      this._loadFromGistURL(url.href);
-
-      if (window.ga) {
-        window.ga('send', 'event', 'report', 'paste-link');
-      }
-    } catch (err) {
-      // noop
-    }
 
     // Try paste as json content.
     try {
@@ -360,52 +234,6 @@ export class LighthouseReportViewer {
         window.ga('send', 'event', 'report', 'paste');
       }
     } catch (err) {
-    }
-  }
-
-  /**
-   * Handles changes to the gist url input.
-   * @param {Event} e
-   * @private
-   */
-  _onUrlInputChange(e) {
-    e.stopPropagation();
-
-    if (!e.target) {
-      return;
-    }
-
-    const inputElement = /** @type {HTMLInputElement} */ (e.target);
-
-    try {
-      this._loadFromGistURL(inputElement.value);
-    } catch (err) {
-      logger.error('Invalid URL');
-    }
-  }
-
-  /**
-   * Loads report json from gist URL, if valid. Updates page URL with gist ID
-   * and loads from github.
-   * @param {string} urlStr Gist URL.
-   * @private
-   */
-  _loadFromGistURL(urlStr) {
-    try {
-      const url = new URL(urlStr);
-
-      if (url.origin !== 'https://gist.github.com') {
-        logger.error('URL was not a gist');
-        return;
-      }
-
-      const match = url.pathname.match(/[a-f0-9]{5,}/);
-      if (match) {
-        history.pushState({}, '', `${LighthouseReportViewer.APP_URL}?gist=${match[0]}`);
-        this._loadFromDeepLink();
-      }
-    } catch (err) {
-      logger.error('Invalid URL');
     }
   }
 
@@ -431,30 +259,6 @@ export class LighthouseReportViewer {
     if (self.opener && !self.opener.closed) {
       self.opener.postMessage({opened: true}, '*');
     }
-  }
-
-  /**
-   * @param {PSIParams} params
-   */
-  _fetchFromPSI(params) {
-    logger.log('Waiting for Lighthouse results ...');
-    return this._psi.fetchPSI(params).then(response => {
-      logger.hide();
-
-      if (!response.lighthouseResult) {
-        if (response.error) {
-          // eslint-disable-next-line no-console
-          console.error(response.error);
-          logger.error(response.error.message);
-        } else {
-          logger.error('PSI did not return a Lighthouse Result');
-        }
-        return;
-      }
-
-      this._reportIsFromPSI = true;
-      this._replaceReportHtml(response.lighthouseResult);
-    });
   }
 
   /**

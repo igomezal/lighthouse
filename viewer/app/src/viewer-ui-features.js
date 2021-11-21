@@ -39,13 +39,6 @@ export class ViewerUIFeatures extends ReportUIFeatures {
   initFeatures(report) {
     super.initFeatures(report);
 
-    // Disable option to save as gist if no callback for saving.
-    if (!this._saveGistCallback) {
-      const saveGistItem =
-        this._dom.find('.lh-tools__dropdown a[data-action="save-gist"]', this._dom.rootEl);
-      saveGistItem.setAttribute('disabled', 'true');
-    }
-
     this._getI18nModule().then(async (i18nModule) => {
       const locales = /** @type {LH.Locale[]} */ (
         await i18nModule.format.getCanonicalLocales());
@@ -60,23 +53,6 @@ export class ViewerUIFeatures extends ReportUIFeatures {
    */
   getReportHtml() {
     return ReportGenerator.generateReportHtml(this.json);
-  }
-
-  /**
-   * @override
-   */
-  saveAsGist() {
-    if (this._saveGistCallback) {
-      this._saveGistCallback(this.json);
-    } else {
-      // UI should prevent this from being called with no callback, but throw to be sure.
-      throw new Error('Cannot save this report as a gist');
-    }
-
-    // Disable save-gist option after saving.
-    const saveGistItem =
-      this._dom.find('.lh-tools__dropdown a[data-action="save-gist"]', this._dom.rootEl);
-    saveGistItem.setAttribute('disabled', 'true');
   }
 
   /**

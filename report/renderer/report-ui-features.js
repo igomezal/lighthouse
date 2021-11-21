@@ -157,14 +157,6 @@ export class ReportUIFeatures {
     return `<!doctype html><body>${this._dom.rootEl.outerHTML}`;
   }
 
-  /**
-   * Save json as a gist. Unimplemented in base UI features.
-   */
-  saveAsGist() {
-    // TODO ?
-    throw new Error('Cannot save as gist from base report');
-  }
-
   _enableFireworks() {
     const scoresContainer = this._dom.find('.lh-scores-container', this._dom.rootEl);
     scoresContainer.classList.add('lh-score100');

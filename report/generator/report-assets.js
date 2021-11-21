@@ -18,6 +18,7 @@ const REPORT_CSS = fs.readFileSync(__dirname + '/../assets/styles.css', 'utf8');
 // and clients/devtools-report-assets.js
 module.exports = {
   REPORT_TEMPLATE,
+  // USED TO GENERATE HTML REPORT
   REPORT_JAVASCRIPT,
   REPORT_CSS,
   // Flow report assets are not needed for every bundle.

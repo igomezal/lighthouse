@@ -88,7 +88,7 @@
     "build-proto-roundtrip": "mkdir -p .tmp && cross-env PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION_VERSION=2 python proto/scripts/json_roundtrip_via_proto.py",
     "static-server": "node lighthouse-cli/test/fixtures/static-server.js",
     "serve-dist": "cd dist && python -m SimpleHTTPServer",
-    "serve-gh-pages": "cd dist/gh-pages && python -m SimpleHTTPServer",
+    "serve-gh-pages": "cd dist/gh-pages && python -m http.server",
     "serve-treemap": "yarn serve-gh-pages",
     "serve-viewer": "yarn serve-gh-pages",
     "flow-report": "yarn build-report --flow && node ./lighthouse-core/scripts/build-test-flow-report.js"

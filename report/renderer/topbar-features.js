@@ -107,10 +107,6 @@ export class TopbarFeatures {
         }
         break;
       }
-      case 'save-gist': {
-        this._reportUIFeatures.saveAsGist();
-        break;
-      }
       case 'toggle-dark': {
         toggleDarkTheme(this._dom);
         break;
